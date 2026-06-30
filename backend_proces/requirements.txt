@@ -1,0 +1,134 @@
+# # нужны для anyjson и immutables
+# setuptools<58.0.0
+
+# aiocontextvars==0.2.2
+# amqp==5.0.2
+
+# # не работает без setuptools
+# anyjson==0.3.3
+
+# asgiref==3.2.10
+# billiard==3.6.3.0
+# CacheControl==0.12.6
+# cachetools==4.2.0
+# celery==5.0.5
+# certifi==2020.11.8
+# cffi==1.14.4
+# chardet==3.0.4
+# click==7.1.2
+# click-didyoumean==0.0.3
+# click-plugins==1.1.1
+# click-repl==0.1.6
+# contextvars==2.4
+# Django==3.1.1
+# django-cors-headers==3.5.0
+# django-crontab==0.7.1
+# django-filter==2.4.0
+# django-logging-middleware==0.1.2
+# djangorestframework==3.12.1
+# djangorestframework-filters==1.0.0.dev2
+# djangorestframework-simplejwt
+# fcm-django==0.3.7
+# firebase-admin==4.5.0
+# google-api-core==1.23.0
+# google-api-python-client==1.12.8
+# google-auth==1.23.0
+# google-auth-httplib2==0.0.4
+# google-cloud-core==1.4.4
+# google-cloud-firestore==2.0.2
+# google-cloud-storage==1.33.0
+# google-crc32c==1.0.0
+# google-resumable-media==1.1.0
+# googleapis-common-protos==1.52.0
+# grpcio
+# httplib2==0.18.1
+# idna==2.10
+
+# # нужна последняя версия
+# immutables
+
+# importlib-metadata==3.3.0
+# kombu==5.0.2
+# loguru==0.5.3
+# msgpack==1.0.1
+# packaging==20.8
+# prompt-toolkit==3.0.8
+# proto-plus==1.13.0
+# protobuf==3.14.0
+# # psycopg2-binary
+# psycopg2
+# pyasn1==0.4.8
+# pyasn1-modules==0.2.8
+# pycparser==2.20
+# pyfcm==1.4.9
+# PyJWT==1.7.1
+# pyparsing==2.4.7
+# python-dateutil==2.8.1
+# pytz==2020.1
+# requests==2.25.0
+# rsa==4.6
+# six==1.15.0
+# sqlparse==0.3.1
+# typing-extensions==3.7.4.3
+# uritemplate==3.0.1
+# urllib3==1.26.2
+# vine==5.0.0
+# wcwidth==0.2.5
+# zipp==3.4.0
+
+# xmltodict~=0.12.0
+# yagmail~=0.14.245
+# openpyxl==2.6.3
+# xlrd
+# pyyaml
+# Pillow
+# django-rest-swagger
+# pdfkit
+# python-barcode
+# qrcode
+# boto3
+# botocore
+# loguru
+# requests
+# redis
+# drf_yasg
+# faker
+# minio
+
+# # Интеграция с налоговым сервисом, напр получение информации о юр лице по его ИНН
+# dadata
+# memory-profiler
+# django-admin-interface
+# django-colorfield
+# django-celery-beat
+
+# Core Django
+Django==4.2.0
+djangorestframework==3.14.0
+django-cors-headers==4.0.0
+django-filter==23.2
+
+# Database
+psycopg2-binary==2.9.9
+
+# Background tasks
+celery==5.3.4
+django-celery-beat==2.5.0
+redis==5.0.1
+
+# Cron tasks
+django-crontab==0.7.1
+
+
+# Authentication & API
+djangorestframework-simplejwt==5.3.0
+djangorestframework-filters==1.0.0.dev2
+drf-yasg==1.21.10
+
+# Environment
+python-dotenv==1.0.0
+
+# Utilities
+Pillow==10.0.0
+requests==2.31.0
+openpyxl==2.6.3 

@@ -1,0 +1,25 @@
+# Dependencies
+node_modules/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Environment
+.env
+.env.*
+
+# Build & cache
+dist/
+build/
+*.log
+.DS_Store
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Docker volumes (local)
+postgres_data/

@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react'
+import { API_BASE_URL } from '../config'
 
 interface User {
   id: string
@@ -60,7 +61,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         return
       }
 
-      const response = await fetch('http://localhost:8001/api/me/', {
+      const response = await fetch(`${API_BASE_URL}/me/`, {
         headers: {
           'Authorization': token,
           'accept': 'application/json'
@@ -91,7 +92,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   const login = async (phone: string, password: string): Promise<boolean> => {
     try {
-      const response = await fetch('http://localhost:8001/api/login/', {
+      const response = await fetch(`${API_BASE_URL}/login/`, {
         method: 'POST',
         headers: {
           'accept': 'application/json',

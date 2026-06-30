@@ -1,6 +1,13 @@
 import React, { useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { useNavigate } from 'react-router-dom'
+import {
+  formatKzPhoneInput,
+  isValidKzPhone,
+  KZ_PHONE_PLACEHOLDER,
+  normalizeKzPhoneOnBlur,
+  normalizeKzPhoneOnFocus,
+} from '../utils/phoneMask'
 
 export const LoginForm: React.FC = () => {
   const [phone, setPhone] = useState('')
@@ -15,6 +22,12 @@ export const LoginForm: React.FC = () => {
     e.preventDefault()
     setIsLoading(true)
     setError('')
+
+    if (!isValidKzPhone(phone)) {
+      setError('Введите полный номер телефона')
+      setIsLoading(false)
+      return
+    }
 
     const success = await login(phone, password)
     
@@ -41,16 +54,21 @@ export const LoginForm: React.FC = () => {
 
         <form onSubmit={handleSubmit} className="space-y-6">
           <div>
-            <label htmlFor="phone" className="block text-sm font-medium text-gray-300 mb-2">
+            <label htmlFor="auth-mobile" className="block text-sm font-medium text-gray-300 mb-2">
               Номер телефона
             </label>
             <input
               type="tel"
-              id="phone"
+              id="auth-mobile"
+              name="mobile"
               value={phone}
-              onChange={(e) => setPhone(e.target.value)}
+              onChange={(e) => setPhone(formatKzPhoneInput(e.target.value))}
+              onFocus={() => setPhone((prev) => normalizeKzPhoneOnFocus(prev))}
+              onBlur={() => setPhone((prev) => normalizeKzPhoneOnBlur(prev))}
+              autoComplete="off"
+              inputMode="numeric"
               className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              placeholder="Телефон"
+              placeholder={KZ_PHONE_PLACEHOLDER}
               required
             />
           </div>
@@ -99,4 +117,4 @@ export const LoginForm: React.FC = () => {
       </div>
     </div>
   )
-} 
+}

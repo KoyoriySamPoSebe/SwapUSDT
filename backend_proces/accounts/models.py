@@ -10,6 +10,7 @@ from django.utils import timezone
 class UserRoles(models.TextChoices):
     ADMIN = 'admin', 'Администратор'
     TRADER = 'trader', 'Трейдер'
+    CLIENT = 'client', 'Клиент'
 
 
 class UserManager(BaseUserManager):
@@ -225,7 +226,14 @@ class Order(models.Model):
     def client_payment_info(self):
         """Информация о платежных данных клиента для сделки"""
         if self.client_payment_type == PaymentMethodType.CARD:
-            return f"{self.client_bank_name} - {self.client_card_holder} - {self.client_card_number if self.client_card_number else ''}"
+            parts = []
+            if self.client_bank_name:
+                parts.append(self.client_bank_name)
+            if self.client_card_holder:
+                parts.append(self.client_card_holder)
+            if self.client_card_number:
+                parts.append(self.client_card_number)
+            return ' - '.join(parts) if parts else 'Реквизиты клиента не указаны'
         elif self.client_payment_type == PaymentMethodType.CRYPTO_WALLET:
             return f"Crypto {self.client_crypto_network} - {self.client_wallet_address}"
         return "Реквизиты клиента не указаны"
@@ -261,7 +269,8 @@ class OrderMessage(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name='messages', verbose_name='Заявка')
     sender = models.ForeignKey(UserAccounts, on_delete=models.CASCADE, related_name='order_messages', verbose_name='Отправитель')
-    text = models.TextField(verbose_name='Текст сообщения')
+    text = models.TextField(blank=True, verbose_name='Текст сообщения')
+    image = models.ImageField(upload_to='chat_images/%Y/%m/', blank=True, null=True, verbose_name='Изображение')
     created_at = models.DateTimeField(auto_now_add=True, verbose_name='Создано')
 
     class Meta:
@@ -271,3 +280,68 @@ class OrderMessage(models.Model):
 
     def __str__(self):
         return f"{self.sender.phone}: {self.text[:50]}"
+
+
+class SupportMessage(models.Model):
+    """Сообщение в чате поддержки"""
+    class Channel(models.TextChoices):
+        SITE = 'site', 'Сайт'
+        TELEGRAM = 'telegram', 'Telegram'
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(
+        UserAccounts, on_delete=models.CASCADE, related_name='support_thread',
+        verbose_name='Пользователь (тред)'
+    )
+    sender = models.ForeignKey(
+        UserAccounts, on_delete=models.CASCADE, related_name='sent_support_messages',
+        verbose_name='Отправитель'
+    )
+    text = models.TextField(verbose_name='Текст')
+    channel = models.CharField(
+        max_length=10, choices=Channel.choices, default=Channel.SITE, verbose_name='Канал'
+    )
+    is_read = models.BooleanField(default=False, verbose_name='Прочитано')
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name='Создано')
+    telegram_message_id = models.BigIntegerField(null=True, blank=True, verbose_name='ID сообщения в Telegram')
+
+    class Meta:
+        verbose_name = 'Сообщение поддержки'
+        verbose_name_plural = 'Сообщения поддержки'
+        ordering = ['created_at']
+
+    def __str__(self):
+        return f"Support {self.user.phone}: {self.text[:50]}"
+
+
+class OrderReview(models.Model):
+    """Отзыв клиента о сделке"""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    order = models.OneToOneField(Order, on_delete=models.CASCADE, related_name='review')
+    client = models.ForeignKey(UserAccounts, on_delete=models.CASCADE, related_name='reviews_given')
+    trader = models.ForeignKey(UserAccounts, on_delete=models.CASCADE, related_name='reviews_received')
+    rating = models.IntegerField(verbose_name='Оценка (1-5)')
+    text = models.TextField(blank=True, verbose_name='Текст отзыва')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = 'Отзыв'
+        verbose_name_plural = 'Отзывы'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"Review {self.client.phone} -> {self.trader.phone}: {self.rating}/5"
+
+
+class ExchangeRate(models.Model):
+    """Кэш курса обмена"""
+    pair = models.CharField(max_length=20, unique=True, verbose_name='Пара')
+    rate = models.DecimalField(max_digits=12, decimal_places=4, verbose_name='Курс')
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'Курс обмена'
+        verbose_name_plural = 'Курсы обмена'
+
+    def __str__(self):
+        return f"{self.pair}: {self.rate}"

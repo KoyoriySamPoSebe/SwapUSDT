@@ -7,6 +7,6 @@ export default defineConfig({
   server: {
     host: '0.0.0.0',
     port: 5173,
-    allowedHosts: ['swapusdt.app', '127.0.0.1', 'localhost']
+    allowedHosts: ['swapusdt.one', 'www.swapusdt.one', '127.0.0.1', 'localhost']
   }
 }) 

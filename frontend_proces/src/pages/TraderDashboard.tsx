@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
 import { Layout } from '../components/Layout'
 import { apiService, TraderDashboard as TraderDashboardType, TraderOrder } from '../services/api'
 
@@ -7,27 +7,68 @@ export const TraderDashboard: React.FC = () => {
   const [orders, setOrders] = useState<TraderOrder[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [showAddPayment, setShowAddPayment] = useState(false)
+  const [addingPayment, setAddingPayment] = useState(false)
+  const [newPayment, setNewPayment] = useState({
+    method_type: 'card' as 'card' | 'crypto_wallet',
+    bank_name: '',
+    card_number: '',
+    card_holder_name: '',
+    wallet_address: '',
+    crypto_network: 'TRC20',
+  })
+
+  const fetchData = useCallback(async () => {
+    try {
+      setLoading(true)
+      const [dashboardData, ordersData] = await Promise.all([
+        apiService.getTraderDashboard(),
+        apiService.getTraderOrders()
+      ])
+      setDashboard(dashboardData)
+      setOrders(ordersData)
+    } catch (err) {
+      setError('Ошибка при загрузке данных')
+      console.error(err)
+    } finally {
+      setLoading(false)
+    }
+  }, [])
 
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        setLoading(true)
-        const [dashboardData, ordersData] = await Promise.all([
-          apiService.getTraderDashboard(),
-          apiService.getTraderOrders()
-        ])
-        setDashboard(dashboardData)
-        setOrders(ordersData)
-      } catch (err) {
-        setError('Ошибка при загрузке данных')
-        console.error(err)
-      } finally {
-        setLoading(false)
-      }
-    }
-
     fetchData()
-  }, [])
+  }, [fetchData])
+
+  const handleAddPayment = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setAddingPayment(true)
+    try {
+      await apiService.addTraderPaymentMethod(newPayment)
+      setShowAddPayment(false)
+      setNewPayment({
+        method_type: 'card',
+        bank_name: '',
+        card_number: '',
+        card_holder_name: '',
+        wallet_address: '',
+        crypto_network: 'TRC20',
+      })
+      fetchData()
+    } catch (err) {
+      alert('Ошибка добавления реквизитов')
+    }
+    setAddingPayment(false)
+  }
+
+  const handleDeletePayment = async (id: string) => {
+    if (!confirm('Удалить реквизиты?')) return
+    try {
+      await apiService.deleteTraderPaymentMethod(id)
+      fetchData()
+    } catch (err) {
+      alert('Ошибка удаления')
+    }
+  }
 
   const formatAmount = (amount: number | string) => {
     return new Intl.NumberFormat('ru-RU').format(Number(amount))
@@ -342,10 +383,17 @@ export const TraderDashboard: React.FC = () => {
 
           {/* Payment Methods */}
           <div className="bg-gray-800 border border-gray-700 rounded-lg p-6 hover:bg-gray-750 hover:border-gray-600 transition-all duration-300 hover:shadow-xl group">
-            <h2 className="text-xl font-semibold text-white mb-6 group-hover:text-purple-300 transition-colors duration-300">Способы оплаты</h2>
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-xl font-semibold text-white group-hover:text-purple-300 transition-colors duration-300">Способы оплаты</h2>
+              <button
+                onClick={() => setShowAddPayment(true)}
+                className="px-3 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-white text-sm font-medium rounded-lg transition-colors"
+              >
+                + Добавить
+              </button>
+            </div>
             <div className="space-y-4">
               {dashboard.trader_profile.payment_methods.map((method, index) => {
-                // Получаем последние 4 цифры для карт или последние символы для кошельков
                 const getLastDigits = () => {
                   if (method.method_type === 'card' && method.card_number) {
                     return method.card_number.replace(/\s/g, '').slice(-4)
@@ -358,47 +406,38 @@ export const TraderDashboard: React.FC = () => {
                 return (
                   <div 
                     key={method.id} 
-                    className="bg-gray-700/50 rounded-lg p-4 hover:bg-gray-700 transition-all duration-300 hover:shadow-lg hover:scale-105 group/method cursor-pointer"
+                    className="bg-gray-700/50 rounded-lg p-4 hover:bg-gray-700 transition-all duration-300 group/method"
                     style={{animationDelay: `${index * 100}ms`}}
                   >
                     <div className="flex items-center justify-between">
                       <div className="flex items-center space-x-3">
                         {method.method_type === 'card' ? (
-                          <div className="relative">
-                            {/* Card icon with number overlay */}
-                            <div className="w-12 h-8 bg-gradient-to-r from-blue-500 to-blue-600 rounded-md flex items-center justify-center shadow-lg group-hover/method:shadow-xl group-hover/method:shadow-blue-500/30 transition-all duration-300 group-hover/method:scale-110">
-                              <span className="text-white text-xs font-bold tracking-wider group-hover/method:text-blue-100 transition-colors duration-300">
-                                {getLastDigits()}
-                              </span>
-                            </div>
+                          <div className="w-12 h-8 bg-gradient-to-r from-blue-500 to-blue-600 rounded-md flex items-center justify-center shadow-lg">
+                            <span className="text-white text-xs font-bold tracking-wider">{getLastDigits()}</span>
                           </div>
                         ) : (
-                          <div className="relative">
-                            {/* Crypto wallet icon with address overlay */}
-                            <div className="w-12 h-8 bg-gradient-to-r from-orange-500 to-orange-600 rounded-md flex items-center justify-center shadow-lg group-hover/method:shadow-xl group-hover/method:shadow-orange-500/30 transition-all duration-300 group-hover/method:scale-110">
-                              <span className="text-white text-xs font-bold tracking-wider group-hover/method:text-orange-100 transition-colors duration-300">
-                                {getLastDigits()}
-                              </span>
-                            </div>
+                          <div className="w-12 h-8 bg-gradient-to-r from-orange-500 to-orange-600 rounded-md flex items-center justify-center shadow-lg">
+                            <span className="text-white text-xs font-bold tracking-wider">{getLastDigits()}</span>
                           </div>
                         )}
                         <div>
-                          <p className="text-white font-medium group-hover/method:text-blue-300 transition-colors duration-300">
-                            {method.method_type_display}
-                          </p>
-                          <p className="text-gray-400 text-sm group-hover/method:text-gray-300 transition-colors duration-300">
-                            {method.method_type === 'card' 
-                              ? method.bank_name 
-                              : `${method.crypto_network} кошелек`
-                            }
+                          <p className="text-white font-medium">{method.method_type_display}</p>
+                          <p className="text-gray-400 text-sm">
+                            {method.method_type === 'card' ? method.bank_name : `${method.crypto_network} кошелек`}
                           </p>
                         </div>
                       </div>
-                      <div className={`w-3 h-3 rounded-full transition-all duration-300 ${
-                        method.is_active 
-                          ? 'bg-green-400 group-hover/method:bg-green-300 group-hover/method:scale-125 animate-pulse' 
-                          : 'bg-gray-500 group-hover/method:bg-gray-400'
-                      }`}></div>
+                      <div className="flex items-center gap-3">
+                        <div className={`w-3 h-3 rounded-full ${method.is_active ? 'bg-green-400 animate-pulse' : 'bg-gray-500'}`}></div>
+                        <button
+                          onClick={() => handleDeletePayment(method.id)}
+                          className="text-gray-500 hover:text-red-400 transition-colors"
+                        >
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                          </svg>
+                        </button>
+                      </div>
                     </div>
                   </div>
                 )
@@ -409,11 +448,115 @@ export const TraderDashboard: React.FC = () => {
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
                   </svg>
                   <p className="mt-2 text-sm text-gray-400">Нет добавленных способов оплаты</p>
+                  <button
+                    onClick={() => setShowAddPayment(true)}
+                    className="mt-3 px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-white text-sm rounded-lg transition-colors"
+                  >
+                    Добавить реквизиты
+                  </button>
                 </div>
               )}
             </div>
           </div>
         </div>
+
+        {/* Add Payment Modal */}
+        {showAddPayment && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div className="absolute inset-0 bg-black/60" onClick={() => setShowAddPayment(false)} />
+            <div className="relative bg-gray-800 border border-gray-700 rounded-2xl p-6 w-full max-w-md">
+              <h3 className="text-lg font-semibold text-white mb-4">Добавить реквизиты</h3>
+              <form onSubmit={handleAddPayment} className="space-y-4">
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setNewPayment({ ...newPayment, method_type: 'card' })}
+                    className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors ${
+                      newPayment.method_type === 'card' ? 'bg-blue-500 text-white' : 'bg-gray-700 text-gray-300'
+                    }`}
+                  >
+                    💳 Карта
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setNewPayment({ ...newPayment, method_type: 'crypto_wallet' })}
+                    className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors ${
+                      newPayment.method_type === 'crypto_wallet' ? 'bg-emerald-500 text-white' : 'bg-gray-700 text-gray-300'
+                    }`}
+                  >
+                    🪙 Крипто
+                  </button>
+                </div>
+
+                {newPayment.method_type === 'card' ? (
+                  <>
+                    <input
+                      type="text"
+                      placeholder="Название банка"
+                      value={newPayment.bank_name}
+                      onChange={(e) => setNewPayment({ ...newPayment, bank_name: e.target.value })}
+                      className="w-full px-4 py-2.5 bg-gray-700 border border-gray-600 rounded-xl text-white placeholder-gray-500"
+                      required
+                    />
+                    <input
+                      type="text"
+                      placeholder="Номер карты"
+                      value={newPayment.card_number}
+                      onChange={(e) => setNewPayment({ ...newPayment, card_number: e.target.value })}
+                      className="w-full px-4 py-2.5 bg-gray-700 border border-gray-600 rounded-xl text-white placeholder-gray-500"
+                      required
+                    />
+                    <input
+                      type="text"
+                      placeholder="Имя держателя"
+                      value={newPayment.card_holder_name}
+                      onChange={(e) => setNewPayment({ ...newPayment, card_holder_name: e.target.value })}
+                      className="w-full px-4 py-2.5 bg-gray-700 border border-gray-600 rounded-xl text-white placeholder-gray-500"
+                      required
+                    />
+                  </>
+                ) : (
+                  <>
+                    <select
+                      value={newPayment.crypto_network}
+                      onChange={(e) => setNewPayment({ ...newPayment, crypto_network: e.target.value })}
+                      className="w-full px-4 py-2.5 bg-gray-700 border border-gray-600 rounded-xl text-white"
+                    >
+                      <option value="TRC20">TRC20</option>
+                      <option value="ERC20">ERC20</option>
+                      <option value="BEP20">BEP20</option>
+                    </select>
+                    <input
+                      type="text"
+                      placeholder="Адрес кошелька"
+                      value={newPayment.wallet_address}
+                      onChange={(e) => setNewPayment({ ...newPayment, wallet_address: e.target.value })}
+                      className="w-full px-4 py-2.5 bg-gray-700 border border-gray-600 rounded-xl text-white placeholder-gray-500"
+                      required
+                    />
+                  </>
+                )}
+
+                <div className="flex gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setShowAddPayment(false)}
+                    className="flex-1 py-2.5 bg-gray-700 hover:bg-gray-600 text-white rounded-xl transition-colors"
+                  >
+                    Отмена
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={addingPayment}
+                    className="flex-1 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-white rounded-xl transition-colors"
+                  >
+                    {addingPayment ? 'Сохранение...' : 'Сохранить'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
 
         {/* Profile Info */}
         <div className="mt-8 bg-gray-800 border border-gray-700 rounded-lg p-6">

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { Layout } from '../components/Layout'
 import { apiService, TraderAnalytics, AdminAnalytics } from '../services/api'
+import { API_BASE_URL } from '../config'
 
 export const AdminDashboard: React.FC = () => {
   const [analytics, setAnalytics] = useState<TraderAnalytics[]>([])
@@ -79,9 +80,34 @@ export const AdminDashboard: React.FC = () => {
     <Layout>
       <div className="p-6 w-full">
         {/* Header */}
-        <div className="mb-8 animate-fadeIn">
-          <h1 className="text-3xl font-bold text-white mb-2 hover:text-blue-400 transition-colors duration-300">Административная панель</h1>
-          <p className="text-gray-400">Аналитика трейдеров и общая статистика</p>
+        <div className="mb-8 animate-fadeIn flex items-start justify-between">
+          <div>
+            <h1 className="text-3xl font-bold text-white mb-2 hover:text-blue-400 transition-colors duration-300">Административная панель</h1>
+            <p className="text-gray-400">Аналитика трейдеров и общая статистика</p>
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={async () => {
+                const token = localStorage.getItem('access_token')
+                const resp = await fetch(`${API_BASE_URL}/admin/export-orders/?format=csv`, {
+                  headers: { 'Authorization': token || '' }
+                })
+                const blob = await resp.blob()
+                const url = window.URL.createObjectURL(blob)
+                const a = document.createElement('a')
+                a.href = url
+                a.download = 'orders_export.csv'
+                a.click()
+                window.URL.revokeObjectURL(url)
+              }}
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium rounded-lg transition-colors flex items-center gap-2"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+              Выгрузить CSV
+            </button>
+          </div>
         </div>
 
         {/* Overall Stats */}

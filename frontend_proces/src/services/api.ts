@@ -1,3 +1,5 @@
+import { API_BASE_URL } from '../config'
+
 interface User {
   id: string
   first_name: string
@@ -183,13 +185,31 @@ interface OrderMessage {
   sender: string
   sender_info: User
   text: string
+  image_url: string | null
   created_at: string
 }
 
-const API_BASE_URL = 'http://localhost:8001/api'
+interface SupportMessage {
+  id: string
+  user: string
+  sender: string
+  sender_info: User
+  text: string
+  is_read: boolean
+  created_at: string
+}
+
+interface SupportThread {
+  user_info: User
+  last_message: string
+  last_message_at: string
+  unread_count: number
+  total_messages: number
+}
+
 
 class ApiService {
-  private getAuthHeaders() {
+  private getAuthHeaders(): Record<string, string> {
     const token = localStorage.getItem('access_token')
     return {
       'Authorization': token || '',
@@ -198,44 +218,31 @@ class ApiService {
     }
   }
 
-  async getTraders(): Promise<Trader[]> {
-    try {
-      const response = await fetch(`${API_BASE_URL}/admin/traders/`, {
-        method: 'GET',
-        headers: this.getAuthHeaders(),
-      })
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`)
-      }
-
-      return await response.json()
-    } catch (error) {
-      console.error('Error fetching traders:', error)
-      throw error
+  private async request<T>(
+    endpoint: string,
+    options: { method?: string; body?: unknown; withAuth?: boolean } = {}
+  ): Promise<T> {
+    const { method = 'GET', body, withAuth = true } = options
+    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+      method,
+      headers: withAuth ? this.getAuthHeaders() : { 'Content-Type': 'application/json' },
+      body: body ? JSON.stringify(body) : undefined,
+    })
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}))
+      throw new Error(errorData.detail || errorData.message || `HTTP error: ${response.status}`)
     }
+    if (response.status === 204) return undefined as T
+    return response.json()
+  }
+
+  async getTraders(): Promise<Trader[]> {
+    return this.request('/admin/traders/')
   }
 
   async searchTraders(query: string): Promise<Trader[]> {
-    try {
-      if (query.length < 2) {
-        return []
-      }
-
-      const response = await fetch(`${API_BASE_URL}/admin/search-traders/?query=${encodeURIComponent(query)}`, {
-        method: 'GET',
-        headers: this.getAuthHeaders(),
-      })
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`)
-      }
-
-      return await response.json()
-    } catch (error) {
-      console.error('Error searching traders:', error)
-      throw error
-    }
+    if (query.length < 2) return []
+    return this.request(`/admin/search-traders/?query=${encodeURIComponent(query)}`)
   }
 
   async addPaymentMethod(data: {
@@ -247,22 +254,7 @@ class ApiService {
     wallet_address?: string
     crypto_network?: string
   }): Promise<PaymentMethod> {
-    try {
-      const response = await fetch(`${API_BASE_URL}/admin/add-payment-method/`, {
-        method: 'POST',
-        headers: this.getAuthHeaders(),
-        body: JSON.stringify(data),
-      })
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`)
-      }
-
-      return await response.json()
-    } catch (error) {
-      console.error('Error adding payment method:', error)
-      throw error
-    }
+    return this.request('/admin/add-payment-method/', { method: 'POST', body: data })
   }
 
   async createTrader(traderData: {
@@ -273,76 +265,19 @@ class ApiService {
     password: string
     deposit_amount: string
   }): Promise<User> {
-    try {
-      const response = await fetch(`${API_BASE_URL}/admin/create-trader/`, {
-        method: 'POST',
-        headers: this.getAuthHeaders(),
-        body: JSON.stringify(traderData),
-      })
-
-      if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.detail || 'Ошибка при создании трейдера')
-      }
-
-      return await response.json()
-    } catch (error) {
-      console.error('Error creating trader:', error)
-      throw error
-    }
+    return this.request('/admin/create-trader/', { method: 'POST', body: traderData })
   }
 
   async deletePaymentMethod(paymentMethodId: string): Promise<void> {
-    try {
-      const response = await fetch(`${API_BASE_URL}/admin/payment-methods/${paymentMethodId}/delete/`, {
-        method: 'DELETE',
-        headers: this.getAuthHeaders(),
-      })
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`)
-      }
-    } catch (error) {
-      console.error('Error deleting payment method:', error)
-      throw error
-    }
+    return this.request(`/admin/payment-methods/${paymentMethodId}/delete/`, { method: 'DELETE' })
   }
 
   async togglePaymentMethod(paymentMethodId: string, isActive: boolean): Promise<PaymentMethod> {
-    try {
-      const response = await fetch(`${API_BASE_URL}/admin/payment-methods/${paymentMethodId}/toggle/`, {
-        method: 'PATCH',
-        headers: this.getAuthHeaders(),
-        body: JSON.stringify({ is_active: isActive }),
-      })
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`)
-      }
-
-      return await response.json()
-    } catch (error) {
-      console.error('Error toggling payment method:', error)
-      throw error
-    }
+    return this.request(`/admin/payment-methods/${paymentMethodId}/toggle/`, { method: 'PATCH', body: { is_active: isActive } })
   }
 
   async getAllOrders(): Promise<Order[]> {
-    try {
-      const response = await fetch(`${API_BASE_URL}/orders/`, {
-        method: 'GET',
-        headers: this.getAuthHeaders(),
-      })
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`)
-      }
-
-      return await response.json()
-    } catch (error) {
-      console.error('Error fetching orders:', error)
-      throw error
-    }
+    return this.request('/orders/')
   }
 
   async createOrder(orderData: {
@@ -359,23 +294,7 @@ class ApiService {
     client_wallet_address?: string
     client_crypto_network?: string
   }): Promise<Order> {
-    try {
-      const response = await fetch(`${API_BASE_URL}/orders/create-for-trader/`, {
-        method: 'POST',
-        headers: this.getAuthHeaders(),
-        body: JSON.stringify(orderData),
-      })
-
-      if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.detail || 'Ошибка при создании заявки')
-      }
-
-      return await response.json()
-    } catch (error) {
-      console.error('Error creating order:', error)
-      throw error
-    }
+    return this.request('/orders/create-for-trader/', { method: 'POST', body: orderData })
   }
 
   async updateOrder(orderId: string, updateData: {
@@ -392,173 +311,173 @@ class ApiService {
     client_crypto_network?: string
     completed_at?: string
   }): Promise<Order> {
-    try {
-      const response = await fetch(`${API_BASE_URL}/orders/${orderId}/admin-update/`, {
-        method: 'PATCH',
-        headers: this.getAuthHeaders(),
-        body: JSON.stringify(updateData),
-      })
-
-      if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.detail || 'Ошибка при обновлении заявки')
-      }
-
-      return await response.json()
-    } catch (error) {
-      console.error('Error updating order:', error)
-      throw error
-    }
+    return this.request(`/orders/${orderId}/admin-update/`, { method: 'PATCH', body: updateData })
   }
 
   async getTradersAnalytics(): Promise<TraderAnalytics[]> {
-    try {
-      const response = await fetch(`${API_BASE_URL}/admin/traders-analytics/`, {
-        method: 'GET',
-        headers: this.getAuthHeaders(),
-      })
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`)
-      }
-
-      return await response.json()
-    } catch (error) {
-      console.error('Error fetching traders analytics:', error)
-      throw error
-    }
+    return this.request('/admin/traders-analytics/')
   }
 
   async getAdminAnalytics(): Promise<AdminAnalytics> {
-    try {
-      const response = await fetch(`${API_BASE_URL}/admin/analytics/`, {
-        method: 'GET',
-        headers: this.getAuthHeaders(),
-      })
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`)
-      }
-
-      return await response.json()
-    } catch (error) {
-      console.error('Error fetching admin analytics:', error)
-      throw error
-    }
+    return this.request('/admin/analytics/')
   }
 
   async updateTraderOnlineStatus(isOnline: boolean): Promise<{ is_online: boolean }> {
-    try {
-      const response = await fetch(`${API_BASE_URL}/trader/update-online-status/`, {
-        method: 'PATCH',
-        headers: this.getAuthHeaders(),
-        body: JSON.stringify({ is_online: isOnline }),
-      })
-
-      if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.detail || 'Ошибка при обновлении статуса')
-      }
-
-      return await response.json()
-    } catch (error) {
-      console.error('Error updating online status:', error)
-      throw error
-    }
+    return this.request('/trader/update-online-status/', { method: 'PATCH', body: { is_online: isOnline } })
   }
 
   async getTraderDashboard(): Promise<TraderDashboard> {
-    try {
-      const response = await fetch(`${API_BASE_URL}/trader/dashboard/`, {
-        method: 'GET',
-        headers: this.getAuthHeaders(),
-      })
+    return this.request('/trader/dashboard/')
+  }
 
-      if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.detail || 'Ошибка при загрузке дашборда')
-      }
+  async addTraderPaymentMethod(data: {
+    method_type: 'card' | 'crypto_wallet'
+    bank_name?: string
+    card_number?: string
+    card_holder_name?: string
+    wallet_address?: string
+    crypto_network?: string
+  }): Promise<PaymentMethod> {
+    return this.request('/trader/add-payment-method/', { method: 'POST', body: data })
+  }
 
-      return await response.json()
-    } catch (error) {
-      console.error('Error fetching trader dashboard:', error)
-      throw error
+  async deleteTraderPaymentMethod(id: string): Promise<void> {
+    return this.request(`/trader/payment-methods/${id}/delete/`, { method: 'DELETE' })
+  }
+
+  async getExchangeRate(): Promise<{ pair: string; buy_rate: string; sell_rate: string; mid_rate: string; updated_at: string }> {
+    return this.request('/exchange/rate/', { withAuth: false })
+  }
+
+  async getClientOrders(): Promise<Order[]> {
+    return this.request('/client/orders/')
+  }
+
+  async getClientPaymentMethods(): Promise<PaymentMethod[]> {
+    return this.request('/client/payment-methods/')
+  }
+
+  async addClientPaymentMethod(data: {
+    method_type: 'card' | 'crypto_wallet'
+    bank_name?: string
+    card_number?: string
+    card_holder_name?: string
+    wallet_address?: string
+    crypto_network?: string
+  }): Promise<PaymentMethod> {
+    return this.request('/client/add-payment-method/', { method: 'POST', body: data })
+  }
+
+  async deleteClientPaymentMethod(id: string): Promise<void> {
+    return this.request(`/client/payment-methods/${id}/delete/`, { method: 'DELETE' })
+  }
+
+  async getClientOrderDetail(orderId: string): Promise<any> {
+    return this.request(`/client/orders/${orderId}/`)
+  }
+
+  async leaveReview(orderId: string, rating: number, text: string): Promise<any> {
+    return this.request(`/client/orders/${orderId}/review/`, { method: 'POST', body: { rating, text } })
+  }
+
+  async getClientOrderMessages(orderId: string): Promise<OrderMessage[]> {
+    return this.request(`/client/orders/${orderId}/messages/`)
+  }
+
+  async sendClientOrderMessage(orderId: string, text: string): Promise<OrderMessage> {
+    return this.request(`/client/orders/${orderId}/messages/send/`, { method: 'POST', body: { text } })
+  }
+
+  async sendClientOrderMessageWithImage(orderId: string, text: string, image: File): Promise<OrderMessage> {
+    const formData = new FormData()
+    if (text) formData.append('text', text)
+    formData.append('image', image)
+    const token = localStorage.getItem('access_token')
+    const res = await fetch(`${API_BASE_URL}/client/orders/${orderId}/messages/send/`, {
+      method: 'POST',
+      headers: { 'Authorization': token || '' },
+      body: formData,
+    })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}))
+      throw new Error(err.message || 'Ошибка загрузки')
     }
+    return res.json()
+  }
+
+  async createSelfOrder(data: {
+    order_type: 'buy' | 'sell'
+    amount_usdt: string
+    rate: string
+    payment_method_id?: string
+    notes?: string
+  }): Promise<Order> {
+    return this.request('/orders/create-self/', { method: 'POST', body: data })
   }
 
   async getTraderOrders(): Promise<TraderOrder[]> {
-    try {
-      const response = await fetch(`${API_BASE_URL}/orders/trader-orders/`, {
-        method: 'GET',
-        headers: this.getAuthHeaders(),
-      })
-
-      if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.detail || 'Ошибка при загрузке заявок')
-      }
-
-      return await response.json()
-    } catch (error) {
-      console.error('Error fetching trader orders:', error)
-      throw error
-    }
+    return this.request('/orders/trader-orders/')
   }
 
   async updateTraderOrderStatus(orderId: string, status: string, commission?: string): Promise<TraderOrder> {
-    try {
-      const body: any = { status }
-      
-      // Если статус "completed", добавляем комиссию
-      if (status === 'completed' && commission) {
-        body.commission = commission
-      }
-
-      const response = await fetch(`${API_BASE_URL}/orders/${orderId}/update-trader-status/`, {
-        method: 'PATCH',
-        headers: this.getAuthHeaders(),
-        body: JSON.stringify(body),
-      })
-
-      if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.detail || 'Ошибка при обновлении статуса заявки')
-      }
-
-      return await response.json()
-    } catch (error) {
-      console.error('Error updating trader order status:', error)
-      throw error
-    }
+    const body: Record<string, string> = { status }
+    if (status === 'completed' && commission) body.commission = commission
+    return this.request(`/orders/${orderId}/update-trader-status/`, { method: 'PATCH', body })
   }
 
   async getOrderMessages(orderId: string): Promise<OrderMessage[]> {
-    const response = await fetch(`${API_BASE_URL}/orders/${orderId}/messages/`, {
-      method: 'GET',
-      headers: this.getAuthHeaders(),
-    })
-
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`)
-    }
-
-    return await response.json()
+    return this.request(`/orders/${orderId}/messages/`)
   }
 
   async sendOrderMessage(orderId: string, text: string): Promise<OrderMessage> {
-    const response = await fetch(`${API_BASE_URL}/orders/${orderId}/messages/send/`, {
+    return this.request(`/orders/${orderId}/messages/send/`, { method: 'POST', body: { text } })
+  }
+
+  async sendOrderMessageWithImage(orderId: string, text: string, image: File): Promise<OrderMessage> {
+    const formData = new FormData()
+    if (text) formData.append('text', text)
+    formData.append('image', image)
+    const token = localStorage.getItem('access_token')
+    const res = await fetch(`${API_BASE_URL}/orders/${orderId}/messages/send/`, {
       method: 'POST',
-      headers: this.getAuthHeaders(),
-      body: JSON.stringify({ text }),
+      headers: { 'Authorization': token || '' },
+      body: formData,
     })
-
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`)
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}))
+      throw new Error(err.message || 'Ошибка загрузки')
     }
+    return res.json()
+  }
 
-    return await response.json()
+  async getSupportMessages(): Promise<SupportMessage[]> {
+    return this.request('/support/messages/')
+  }
+
+  async getSupportTelegramInfo(): Promise<{ bot_url: string | null; is_configured: boolean; is_linked: boolean }> {
+    return this.request('/support/telegram-info/')
+  }
+
+  async sendSupportMessage(text: string): Promise<SupportMessage> {
+    return this.request('/support/messages/send/', { method: 'POST', body: { text } })
+  }
+
+  async getSupportUnreadCount(): Promise<{ unread_count: number }> {
+    return this.request('/support/unread-count/')
+  }
+
+  async getSupportThreads(): Promise<SupportThread[]> {
+    return this.request('/support/threads/')
+  }
+
+  async getSupportThreadMessages(userId: string): Promise<SupportMessage[]> {
+    return this.request(`/support/thread/?user_id=${userId}`)
+  }
+
+  async replySupportMessage(userId: string, text: string): Promise<SupportMessage> {
+    return this.request('/support/reply/', { method: 'POST', body: { user_id: userId, text } })
   }
 }
 
 export const apiService = new ApiService()
-export type { Trader, User, PaymentMethod, Order, TraderAnalytics, AdminAnalytics, TraderDashboard, TraderOrder, OrderMessage } 
+export type { Trader, User, PaymentMethod, Order, TraderAnalytics, AdminAnalytics, TraderDashboard, TraderOrder, OrderMessage, SupportMessage, SupportThread } 

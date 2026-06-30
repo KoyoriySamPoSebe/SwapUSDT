@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react'
-import { Link, useLocation } from 'react-router-dom'
+import React from 'react'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 
 interface MenuItem {
@@ -16,6 +16,7 @@ interface SidebarProps {
 
 export const Sidebar: React.FC<SidebarProps> = ({ isCollapsed }) => {
   const location = useLocation()
+  const navigate = useNavigate()
   const { user, logout } = useAuth()
 
   // Базовые пункты меню
@@ -23,7 +24,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isCollapsed }) => {
     {
       id: 'dashboard',
       title: 'Главная',
-      path: '/',
+      path: '/account',
       icon: (
         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2H5a2 2 0 00-2-2z" />
@@ -87,20 +88,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ isCollapsed }) => {
     }`}>
       {/* Logo */}
       <div className="p-4 border-b border-gray-700">
-        <div className="flex items-center space-x-3">
-          <div className="w-8 h-8 bg-gray-700 rounded-lg flex items-center justify-center relative">
-            {/* Exchange arrows */}
-            <svg className="w-5 h-5 absolute" viewBox="0 0 24 24" fill="none">
-              <path d="M6 9h9l-2-2m0 0l2 2m-2-2v4" stroke="#3b82f6" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-              <path d="M18 15H9l2 2m0 0l-2-2m2 2v-4" stroke="#10b981" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
-            {/* Dollar sign */}
-            <text x="12" y="14" textAnchor="middle" fill="#fbbf24" fontSize="6" fontWeight="bold" fontFamily="Arial, sans-serif">$</text>
-          </div>
+        <Link to="/" className="flex items-center space-x-3 hover:opacity-80 transition-opacity">
+          <img src="/logo.png" alt="SwapUSDT" className="w-8 h-8 rounded-lg object-cover" />
           {!isCollapsed && (
             <span className="text-white font-bold text-lg">SwapUSDT</span>
           )}
-        </div>
+        </Link>
       </div>
 
 
@@ -141,7 +134,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isCollapsed }) => {
       <div className="p-4 border-t border-gray-700">
         {/* Logout Button */}
         <button
-          onClick={logout}
+          onClick={() => { logout(); navigate('/'); }}
           className={`w-full flex items-center space-x-2 px-3 py-2 text-red-400 hover:bg-red-900/20 hover:text-red-300 rounded-lg transition-colors group ${
             isCollapsed ? 'justify-center' : 'justify-start'
           }`}

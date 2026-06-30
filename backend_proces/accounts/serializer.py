@@ -9,7 +9,7 @@ from decimal import Decimal
 
 from .models import (
     UserAccounts, TraderProfile, Order, TraderStatistics, TraderPaymentMethod,
-    UserRoles, OrderType, OrderStatus, PaymentMethodType
+    UserRoles, OrderType, OrderStatus, PaymentMethodType, OrderMessage
 )
 
 
@@ -780,3 +780,41 @@ class TraderUpdateOrderStatusSerializer(Serializer):
         
         instance.save()
         return instance
+
+
+class OrderMessageSerializer(ModelSerializer):
+    sender_info = UserSerialzier(source='sender', read_only=True)
+
+    class Meta:
+        model = OrderMessage
+        fields = ['id', 'order', 'sender', 'sender_info', 'text', 'created_at']
+        read_only_fields = ['id', 'order', 'sender', 'sender_info', 'created_at']
+
+
+class CreateOrderMessageSerializer(Serializer):
+    text = CharField(max_length=2000)
+
+    def validate_text(self, value):
+        value = value.strip()
+        if not value:
+            raise ValidationError('Сообщение не может быть пустым')
+        return value
+
+
+class OrderMessageSerializer(ModelSerializer):
+    sender_info = UserSerialzier(source='sender', read_only=True)
+
+    class Meta:
+        model = OrderMessage
+        fields = ['id', 'order', 'sender', 'sender_info', 'text', 'created_at']
+        read_only_fields = ['id', 'order', 'sender', 'sender_info', 'created_at']
+
+
+class CreateOrderMessageSerializer(Serializer):
+    text = CharField(max_length=2000)
+
+    def validate_text(self, value):
+        value = value.strip()
+        if not value:
+            raise ValidationError('Сообщение не может быть пустым')
+        return value

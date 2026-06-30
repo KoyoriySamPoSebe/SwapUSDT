@@ -1,6 +1,6 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
-from .models import UserAccounts, TraderProfile, Order, TraderStatistics, TraderPaymentMethod
+from .models import UserAccounts, TraderProfile, Order, TraderStatistics, TraderPaymentMethod, OrderMessage
 
 
 class TraderPaymentMethodInline(admin.TabularInline):
@@ -145,3 +145,16 @@ class TraderStatisticsAdmin(admin.ModelAdmin):
     
     def get_queryset(self, request):
         return super().get_queryset(request).select_related('trader')
+
+
+@admin.register(OrderMessage)
+class OrderMessageAdmin(admin.ModelAdmin):
+    list_display = ('order', 'sender', 'text_preview', 'created_at')
+    list_filter = ('created_at',)
+    search_fields = ('text', 'sender__phone', 'order__id')
+    ordering = ('-created_at',)
+    readonly_fields = ('created_at',)
+
+    def text_preview(self, obj):
+        return obj.text[:80]
+    text_preview.short_description = 'Текст'

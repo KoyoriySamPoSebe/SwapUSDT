@@ -32,6 +32,8 @@ urlpatterns = [
     path('orders/<str:pk>/update-status/', OrderViewSet.as_view({'patch': 'update_status'})),
     path('orders/<str:pk>/update-trader-status/', OrderViewSet.as_view({'patch': 'update_trader_order_status'})),
     path('orders/<str:pk>/assign-payment-method/', OrderViewSet.as_view({'patch': 'assign_payment_method'})),
+    path('orders/<str:pk>/messages/', OrderViewSet.as_view({'get': 'list_messages'})),
+    path('orders/<str:pk>/messages/send/', OrderViewSet.as_view({'post': 'send_message'})),
     path('orders/trader-orders/', OrderViewSet.as_view({'get': 'list_trader_orders'})),
     
     # API для трейдеров

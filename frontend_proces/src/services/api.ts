@@ -177,6 +177,15 @@ interface Trader {
   updated_at: string
 }
 
+interface OrderMessage {
+  id: string
+  order: string
+  sender: string
+  sender_info: User
+  text: string
+  created_at: string
+}
+
 const API_BASE_URL = 'http://localhost:8001/api'
 
 class ApiService {
@@ -522,7 +531,34 @@ class ApiService {
       throw error
     }
   }
+
+  async getOrderMessages(orderId: string): Promise<OrderMessage[]> {
+    const response = await fetch(`${API_BASE_URL}/orders/${orderId}/messages/`, {
+      method: 'GET',
+      headers: this.getAuthHeaders(),
+    })
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`)
+    }
+
+    return await response.json()
+  }
+
+  async sendOrderMessage(orderId: string, text: string): Promise<OrderMessage> {
+    const response = await fetch(`${API_BASE_URL}/orders/${orderId}/messages/send/`, {
+      method: 'POST',
+      headers: this.getAuthHeaders(),
+      body: JSON.stringify({ text }),
+    })
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`)
+    }
+
+    return await response.json()
+  }
 }
 
 export const apiService = new ApiService()
-export type { Trader, User, PaymentMethod, Order, TraderAnalytics, AdminAnalytics, TraderDashboard, TraderOrder } 
+export type { Trader, User, PaymentMethod, Order, TraderAnalytics, AdminAnalytics, TraderDashboard, TraderOrder, OrderMessage } 

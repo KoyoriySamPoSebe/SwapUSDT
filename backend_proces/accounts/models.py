@@ -254,3 +254,20 @@ class TraderStatistics(models.Model):
 
     def __str__(self):
         return f"{self.trader.first_name} {self.trader.last_name} - {self.date}"
+
+
+class OrderMessage(models.Model):
+    """Сообщение в чате заявки"""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name='messages', verbose_name='Заявка')
+    sender = models.ForeignKey(UserAccounts, on_delete=models.CASCADE, related_name='order_messages', verbose_name='Отправитель')
+    text = models.TextField(verbose_name='Текст сообщения')
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name='Создано')
+
+    class Meta:
+        verbose_name = 'Сообщение заявки'
+        verbose_name_plural = 'Сообщения заявок'
+        ordering = ['created_at']
+
+    def __str__(self):
+        return f"{self.sender.phone}: {self.text[:50]}"

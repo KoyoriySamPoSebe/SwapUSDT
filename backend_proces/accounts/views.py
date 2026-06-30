@@ -17,7 +17,7 @@ from rest_framework_simplejwt.serializers import TokenRefreshSerializer
 from utils import BaseCRUD, CustomPagination
 from .models import (
     UserAccounts, TraderProfile, Order, TraderStatistics, TraderPaymentMethod,
-    UserRoles, OrderStatus, OrderType
+    UserRoles, OrderStatus, OrderType, OrderMessage
 )
 from .serializer import (
     LoginSerializer, RegisterSeialzier, UserSerialzier, RefreshTokenSerialzierPost, UserUpdateSerializer,
@@ -27,7 +27,7 @@ from .serializer import (
     CreatePaymentMethodSerializer, AssignPaymentMethodToOrderSerializer, AddPaymentMethodToTraderSerializer,
     CreateOrderForTraderSerializer, AdminAnalyticsSerializer, TraderAnalyticsSerializer,
     AdminUpdateOrderSerializer, UpdateOnlineStatusSerializer, TraderDetailedStatsSerializer,
-    TraderUpdateOrderStatusSerializer
+    TraderUpdateOrderStatusSerializer, OrderMessageSerializer, CreateOrderMessageSerializer
 )
 
 
@@ -636,6 +636,8 @@ class OrderViewSet(GenericViewSet):
             permission_classes = [IsAdminUser]
         elif self.action in ['update_status', 'assign_payment_method', 'list_trader_orders', 'update_trader_order_status']:
             permission_classes = [IsTraderUser]
+        elif self.action in ['list_messages', 'send_message']:
+            permission_classes = [IsAuthenticated]
         else:
             permission_classes = [IsAuthenticated]
         
@@ -821,6 +823,61 @@ class OrderViewSet(GenericViewSet):
             order.save()
             
             return Response(OrderSerializer(order).data)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    def _can_access_order_chat(self, user, order):
+        if user.role == UserRoles.ADMIN:
+            return True
+        if user.role == UserRoles.TRADER and not user.is_blocked:
+            if order.assigned_trader_id == user.id:
+                return True
+            if order.status == OrderStatus.NEW:
+                return True
+        return False
+
+    @swagger_auto_schema(
+        responses={200: OrderMessageSerializer(many=True)},
+        operation_summary="Сообщения чата заявки",
+        tags=["Orders"]
+    )
+    @action(methods=['get'], detail=True, url_path='messages')
+    def list_messages(self, request, pk=None):
+        try:
+            order = Order.objects.get(id=pk)
+        except Order.DoesNotExist:
+            return Response({"message": "Заявка не найдена"}, status=status.HTTP_404_NOT_FOUND)
+
+        if not self._can_access_order_chat(request.user, order):
+            return Response({"message": "Нет доступа к чату этой заявки"}, status=status.HTTP_403_FORBIDDEN)
+
+        messages = OrderMessage.objects.filter(order=order).select_related('sender')
+        serializer = OrderMessageSerializer(messages, many=True)
+        return Response(serializer.data)
+
+    @swagger_auto_schema(
+        request_body=CreateOrderMessageSerializer,
+        responses={201: OrderMessageSerializer},
+        operation_summary="Отправить сообщение в чат заявки",
+        tags=["Orders"]
+    )
+    @action(methods=['post'], detail=True, url_path='messages/send')
+    def send_message(self, request, pk=None):
+        try:
+            order = Order.objects.get(id=pk)
+        except Order.DoesNotExist:
+            return Response({"message": "Заявка не найдена"}, status=status.HTTP_404_NOT_FOUND)
+
+        if not self._can_access_order_chat(request.user, order):
+            return Response({"message": "Нет доступа к чату этой заявки"}, status=status.HTTP_403_FORBIDDEN)
+
+        serializer = CreateOrderMessageSerializer(data=request.data)
+        if serializer.is_valid():
+            message = OrderMessage.objects.create(
+                order=order,
+                sender=request.user,
+                text=serializer.validated_data['text']
+            )
+            return Response(OrderMessageSerializer(message).data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     def _update_trader_statistics(self, order):

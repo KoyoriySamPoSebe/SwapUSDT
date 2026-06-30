@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { Layout } from '../components/Layout'
+import { OrderChat } from '../components/OrderChat'
 import { apiService, Order, Trader } from '../services/api'
 import { useAuth } from '../contexts/AuthContext'
 
@@ -625,6 +626,13 @@ export const ApplicationsPage: React.FC = () => {
                             <p className="text-sm text-gray-300 mt-1">{order.notes}</p>
                           </div>
                         </div>
+                      </div>
+                    )}
+
+                    {/* Chat */}
+                    {user && (
+                      <div className="mt-4 pt-4 border-t border-gray-700" onClick={(e) => e.stopPropagation()}>
+                        <OrderChat orderId={order.id} currentUserId={user.id} />
                       </div>
                     )}
                   </div>

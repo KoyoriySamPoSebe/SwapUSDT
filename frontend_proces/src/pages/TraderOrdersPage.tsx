@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react'
 import { Layout } from '../components/Layout'
+import { OrderChat } from '../components/OrderChat'
 import { apiService, TraderOrder } from '../services/api'
+import { useAuth } from '../contexts/AuthContext'
 
 const ORDER_STATUSES = {
   'new': { title: 'Новые', color: 'bg-blue-500', bgColor: 'bg-blue-50', borderColor: 'border-blue-200' },
@@ -171,6 +173,7 @@ const ClientPaymentInfo: React.FC<{ order: TraderOrder }> = ({ order }) => {
 }
 
 export const TraderOrdersPage: React.FC = () => {
+  const { user } = useAuth()
   const [orders, setOrders] = useState<TraderOrder[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -178,6 +181,7 @@ export const TraderOrdersPage: React.FC = () => {
   const [dragOverColumn, setDragOverColumn] = useState<string | null>(null)
   const [orderTypeFilter, setOrderTypeFilter] = useState<string | null>(null)
   const [showCompleted, setShowCompleted] = useState(true)
+  const [chatOrder, setChatOrder] = useState<TraderOrder | null>(null)
 
   useEffect(() => {
     const fetchOrders = async () => {
@@ -585,6 +589,18 @@ export const TraderOrdersPage: React.FC = () => {
                             : formatDate(order.created_at)}
                         </div>
                         <div className="flex items-center space-x-1">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setChatOrder(order)
+                            }}
+                            className="p-1.5 rounded-lg text-gray-400 hover:text-blue-400 hover:bg-blue-500/10 transition-all duration-200"
+                            title="Открыть чат"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                            </svg>
+                          </button>
                           <svg className="w-3 h-3 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" />
                           </svg>
@@ -626,6 +642,37 @@ export const TraderOrdersPage: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Chat Modal */}
+      {chatOrder && user && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+          onClick={() => setChatOrder(null)}
+        >
+          <div
+            className="w-full max-w-lg animate-fadeIn"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-3">
+              <div>
+                <h3 className="text-lg font-semibold text-white">
+                  {chatOrder.order_type_display} · {formatAmount(chatOrder.amount_usdt)} USDT
+                </h3>
+                <p className="text-xs text-gray-400 font-mono">#{chatOrder.id.slice(0, 8)}</p>
+              </div>
+              <button
+                onClick={() => setChatOrder(null)}
+                className="p-2 text-gray-400 hover:text-white hover:bg-gray-700 rounded-lg transition-colors"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <OrderChat orderId={chatOrder.id} currentUserId={user.id} />
+          </div>
+        </div>
+      )}
     </Layout>
   )
 } 

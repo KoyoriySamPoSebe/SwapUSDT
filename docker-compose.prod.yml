@@ -1,0 +1,12 @@
+# Production override для сервера (свежая БД, без external volume)
+services:
+  back:
+    command: >
+      bash -c "
+      python manage.py makemigrations
+      && python manage.py migrate
+      && python manage.py seed_production_users
+      && python manage.py runserver 0.0.0.0:8001"
+
+volumes:
+  postgres_data:

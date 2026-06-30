@@ -1,0 +1,5 @@
+# Dev-override: открываем API наружу для Vite
+services:
+  back:
+    ports:
+      - "8001:8001"

@@ -13,6 +13,8 @@ services:
     back:
         restart: always
         build: .
+        env_file:
+            - .env
         ports:
           - "8001:8001"
         depends_on:
@@ -84,6 +86,8 @@ services:
 
     celery_worker:
         build: .
+        env_file:
+            - .env
         command: celery -A config worker --loglevel=info
         volumes:
             - .:/app
@@ -95,7 +99,9 @@ services:
 
     celery_beat:
         build: .
-        command: celery -A config beat --loglevel=info --scheduler django_celery_beat.schedulers:DatabaseScheduler
+        env_file:
+            - .env
+        command: celery -A config beat --loglevel=info
         volumes:
             - .:/app
         environment:

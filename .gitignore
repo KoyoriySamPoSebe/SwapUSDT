@@ -1,3 +1,8 @@
+# Environment
+.env
+backend_proces/.env
+backend_proces/PRODUCTION_CREDENTIALS.json
+
 # Dependencies
 node_modules/
 __pycache__/

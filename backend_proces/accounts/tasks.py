@@ -2,7 +2,7 @@ from celery import shared_task
 from django.utils import timezone
 from datetime import date, timedelta
 from django.db.models import Sum, Count, Q
-from .models import UserAccounts, Order, TraderStatistics, OrderStatus, UserRoles
+from .models import UserAccounts, Order, TraderStatistics, OrderStatus, UserRoles, SupportMessage
 
 
 @shared_task
@@ -151,3 +151,10 @@ def notify_traders_about_new_orders():
         return f"Notified {active_traders.count()} traders about {new_orders} new orders"
     
     return "No new orders to notify about"
+
+
+@shared_task
+def poll_telegram_updates():
+    from .telegram_service import poll_updates
+    count = poll_updates()
+    return f"Processed {count} telegram updates"

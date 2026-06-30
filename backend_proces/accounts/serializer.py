@@ -9,7 +9,8 @@ from decimal import Decimal
 
 from .models import (
     UserAccounts, TraderProfile, Order, TraderStatistics, TraderPaymentMethod,
-    UserRoles, OrderType, OrderStatus, PaymentMethodType, OrderMessage
+    UserRoles, OrderType, OrderStatus, PaymentMethodType, OrderMessage, SupportMessage,
+    ExchangeRate
 )
 
 
@@ -43,6 +44,10 @@ class UserUpdateSerializer(ModelSerializer):
 class LoginSerializer(Serializer):
     phone = CharField()
     password = CharField()
+
+    def validate_phone(self, value):
+        from .phone_utils import validate_kz_phone
+        return validate_kz_phone(value)
 
 
 class RegisterSeialzier(Serializer):
@@ -784,33 +789,41 @@ class TraderUpdateOrderStatusSerializer(Serializer):
 
 class OrderMessageSerializer(ModelSerializer):
     sender_info = UserSerialzier(source='sender', read_only=True)
+    image_url = SerializerMethodField()
 
     class Meta:
         model = OrderMessage
-        fields = ['id', 'order', 'sender', 'sender_info', 'text', 'created_at']
-        read_only_fields = ['id', 'order', 'sender', 'sender_info', 'created_at']
+        fields = ['id', 'order', 'sender', 'sender_info', 'text', 'image', 'image_url', 'created_at']
+        read_only_fields = ['id', 'order', 'sender', 'sender_info', 'image_url', 'created_at']
+
+    def get_image_url(self, obj):
+        if obj.image:
+            request = self.context.get('request')
+            if request:
+                return request.build_absolute_uri(obj.image.url)
+            return obj.image.url
+        return None
 
 
 class CreateOrderMessageSerializer(Serializer):
-    text = CharField(max_length=2000)
+    text = CharField(max_length=2000, required=False, allow_blank=True)
 
     def validate_text(self, value):
         value = value.strip()
-        if not value:
-            raise ValidationError('Сообщение не может быть пустым')
+        return value
         return value
 
 
-class OrderMessageSerializer(ModelSerializer):
+class SupportMessageSerializer(ModelSerializer):
     sender_info = UserSerialzier(source='sender', read_only=True)
 
     class Meta:
-        model = OrderMessage
-        fields = ['id', 'order', 'sender', 'sender_info', 'text', 'created_at']
-        read_only_fields = ['id', 'order', 'sender', 'sender_info', 'created_at']
+        model = SupportMessage
+        fields = ['id', 'user', 'sender', 'sender_info', 'text', 'channel', 'is_read', 'created_at']
+        read_only_fields = fields
 
 
-class CreateOrderMessageSerializer(Serializer):
+class CreateSupportMessageSerializer(Serializer):
     text = CharField(max_length=2000)
 
     def validate_text(self, value):
@@ -818,3 +831,40 @@ class CreateOrderMessageSerializer(Serializer):
         if not value:
             raise ValidationError('Сообщение не может быть пустым')
         return value
+
+
+class SupportReplySerializer(Serializer):
+    user_id = CharField()
+    text = CharField(max_length=2000)
+
+    def validate_text(self, value):
+        value = value.strip()
+        if not value:
+            raise ValidationError('Сообщение не может быть пустым')
+        return value
+
+
+class SupportThreadSerializer(Serializer):
+    user_info = UserSerialzier()
+    last_message = CharField()
+    last_message_at = DateTimeField()
+    unread_count = IntegerField()
+    total_messages = IntegerField()
+
+
+# === Public serializers ===
+
+class TraderRegisterSerializer(Serializer):
+    """Регистрация клиента"""
+    first_name = CharField(max_length=255)
+    last_name = CharField(max_length=255)
+    phone = CharField(max_length=30)
+    password = CharField(min_length=6)
+    email = CharField(required=False, allow_blank=True)
+
+    def validate_phone(self, value):
+        from .phone_utils import validate_kz_phone
+        normalized = validate_kz_phone(value)
+        if UserAccounts.objects.filter(phone=normalized).exists():
+            raise ValidationError('Пользователь с таким номером уже существует')
+        return normalized

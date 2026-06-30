@@ -17,7 +17,8 @@ from rest_framework_simplejwt.serializers import TokenRefreshSerializer
 from utils import BaseCRUD, CustomPagination
 from .models import (
     UserAccounts, TraderProfile, Order, TraderStatistics, TraderPaymentMethod,
-    UserRoles, OrderStatus, OrderType, OrderMessage
+    UserRoles, OrderStatus, OrderType, OrderMessage, SupportMessage,
+    ExchangeRate, PaymentMethodType
 )
 from .serializer import (
     LoginSerializer, RegisterSeialzier, UserSerialzier, RefreshTokenSerialzierPost, UserUpdateSerializer,
@@ -27,7 +28,9 @@ from .serializer import (
     CreatePaymentMethodSerializer, AssignPaymentMethodToOrderSerializer, AddPaymentMethodToTraderSerializer,
     CreateOrderForTraderSerializer, AdminAnalyticsSerializer, TraderAnalyticsSerializer,
     AdminUpdateOrderSerializer, UpdateOnlineStatusSerializer, TraderDetailedStatsSerializer,
-    TraderUpdateOrderStatusSerializer, OrderMessageSerializer, CreateOrderMessageSerializer
+    TraderUpdateOrderStatusSerializer, OrderMessageSerializer, CreateOrderMessageSerializer,
+    SupportMessageSerializer, CreateSupportMessageSerializer, SupportReplySerializer,
+    SupportThreadSerializer, TraderRegisterSerializer
 )
 
 
@@ -93,8 +96,10 @@ class UserBaseViewSet(BaseCRUD):
     def login(self, request):
         serialzier = LoginSerializer(data=request.data)
         if serialzier.is_valid():
+            from .phone_utils import normalize_phone
+            phone_normalized = normalize_phone(serialzier.data['phone'])
             try:
-                user = UserAccounts.objects.get(phone=serialzier.data['phone'])
+                user = UserAccounts.objects.get(phone=phone_normalized)
                 if not user.check_password(serialzier.data['password']):
                     return Response({"message": 'Invalid credentials'}, 400)
                 if user.is_blocked:
@@ -623,6 +628,56 @@ class AdminViewSet(GenericViewSet):
         
         return Response(TraderAnalyticsSerializer(traders_analytics, many=True).data)
 
+    @action(methods=['get'], detail=False, url_path='export-orders')
+    def export_orders(self, request):
+        """Выгрузка заявок в CSV"""
+        import csv
+        from django.http import HttpResponse
+
+        fmt = request.query_params.get('format', 'csv')
+        orders = Order.objects.select_related('created_by', 'assigned_trader').order_by('-created_at')
+
+        if fmt == 'csv':
+            response = HttpResponse(content_type='text/csv; charset=utf-8')
+            response['Content-Disposition'] = 'attachment; filename="orders_export.csv"'
+            response.write('\ufeff')
+
+            writer = csv.writer(response, delimiter=';')
+            writer.writerow([
+                'ID', 'Тип', 'Сумма USDT', 'Курс', 'Сумма KZT', 'Статус',
+                'Клиент', 'Трейдер', 'Комиссия', 'Создана', 'Завершена', 'Примечания'
+            ])
+
+            for order in orders:
+                client_name = ''
+                if order.created_by:
+                    client_name = f"{order.created_by.first_name} {order.created_by.last_name}"
+                elif order.client_name:
+                    client_name = order.client_name
+
+                trader_name = ''
+                if order.assigned_trader:
+                    trader_name = f"{order.assigned_trader.first_name} {order.assigned_trader.last_name}"
+
+                writer.writerow([
+                    str(order.id)[:8],
+                    order.get_order_type_display(),
+                    str(order.amount_usdt),
+                    str(order.rate),
+                    str(order.amount_kzt),
+                    order.get_status_display(),
+                    client_name,
+                    trader_name,
+                    str(order.commission),
+                    order.created_at.strftime('%d.%m.%Y %H:%M') if order.created_at else '',
+                    order.completed_at.strftime('%d.%m.%Y %H:%M') if order.completed_at else '',
+                    order.notes or '',
+                ])
+
+            return response
+
+        return Response({'message': 'Формат не поддерживается'}, status=status.HTTP_400_BAD_REQUEST)
+
 
 class OrderViewSet(GenericViewSet):
     """ViewSet для управления заявками"""
@@ -636,6 +691,8 @@ class OrderViewSet(GenericViewSet):
             permission_classes = [IsAdminUser]
         elif self.action in ['update_status', 'assign_payment_method', 'list_trader_orders', 'update_trader_order_status']:
             permission_classes = [IsTraderUser]
+        elif self.action in ['create_self_order']:
+            permission_classes = [IsAuthenticated]
         elif self.action in ['list_messages', 'send_message']:
             permission_classes = [IsAuthenticated]
         else:
@@ -671,6 +728,59 @@ class OrderViewSet(GenericViewSet):
             order = serializer.save()
             return Response(OrderSerializer(order).data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(methods=['post'], detail=False, url_path='create-self')
+    def create_self_order(self, request):
+        """Создание заявки трейдером/клиентом"""
+        from decimal import Decimal
+        data = request.data
+        order_type = data.get('order_type')
+        amount_usdt = data.get('amount_usdt')
+        rate = data.get('rate')
+
+        if not order_type or not amount_usdt or not rate:
+            return Response({'message': 'Укажите тип, сумму и курс'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            amount_usdt = Decimal(str(amount_usdt))
+            rate = Decimal(str(rate))
+        except Exception:
+            return Response({'message': 'Некорректная сумма или курс'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if amount_usdt <= 0:
+            return Response({'message': 'Сумма должна быть больше 0'}, status=status.HTTP_400_BAD_REQUEST)
+
+        payment_method = None
+        payment_method_id = data.get('payment_method_id')
+        if payment_method_id:
+            try:
+                payment_method = TraderPaymentMethod.objects.get(id=payment_method_id, trader=request.user)
+            except TraderPaymentMethod.DoesNotExist:
+                pass
+
+        order = Order.objects.create(
+            order_type=order_type,
+            amount_usdt=amount_usdt,
+            rate=rate,
+            amount_kzt=amount_usdt * rate,
+            created_by=request.user,
+            client_name=f"{request.user.first_name} {request.user.last_name}",
+            notes=data.get('notes', ''),
+        )
+
+        if payment_method:
+            if payment_method.method_type == PaymentMethodType.CARD:
+                order.client_payment_type = PaymentMethodType.CARD
+                order.client_bank_name = payment_method.bank_name
+                order.client_card_number = payment_method.card_number
+                order.client_card_holder = payment_method.card_holder_name
+            else:
+                order.client_payment_type = PaymentMethodType.CRYPTO_WALLET
+                order.client_wallet_address = payment_method.wallet_address
+                order.client_crypto_network = payment_method.crypto_network
+            order.save()
+
+        return Response(OrderSerializer(order).data, status=status.HTTP_201_CREATED)
 
     @swagger_auto_schema(
         responses={200: OrderSerializer(many=True)},
@@ -758,16 +868,21 @@ class OrderViewSet(GenericViewSet):
     @action(methods=['patch'], detail=True, url_path='update-trader-status')
     def update_trader_order_status(self, request, pk=None):
         try:
-            order = Order.objects.get(id=pk, assigned_trader=request.user)
+            order = Order.objects.get(
+                Q(assigned_trader=request.user) | Q(assigned_trader__isnull=True, status=OrderStatus.NEW),
+                id=pk
+            )
         except Order.DoesNotExist:
             return Response({"message": "Заявка не найдена или не назначена вам"}, 
                           status=status.HTTP_404_NOT_FOUND)
         
+        if not order.assigned_trader:
+            order.assigned_trader = request.user
+
         serializer = TraderUpdateOrderStatusSerializer(order, data=request.data, partial=True, context={'request': request})
         if serializer.is_valid():
             updated_order = serializer.save()
             
-            # Обновляем статистику трейдера при завершении заявки
             if updated_order.status == OrderStatus.COMPLETED and updated_order.assigned_trader:
                 self._update_trader_statistics(updated_order)
                 
@@ -851,7 +966,7 @@ class OrderViewSet(GenericViewSet):
             return Response({"message": "Нет доступа к чату этой заявки"}, status=status.HTTP_403_FORBIDDEN)
 
         messages = OrderMessage.objects.filter(order=order).select_related('sender')
-        serializer = OrderMessageSerializer(messages, many=True)
+        serializer = OrderMessageSerializer(messages, many=True, context={'request': request})
         return Response(serializer.data)
 
     @swagger_auto_schema(
@@ -862,6 +977,7 @@ class OrderViewSet(GenericViewSet):
     )
     @action(methods=['post'], detail=True, url_path='messages/send')
     def send_message(self, request, pk=None):
+        from django.conf import settings as django_settings
         try:
             order = Order.objects.get(id=pk)
         except Order.DoesNotExist:
@@ -870,15 +986,27 @@ class OrderViewSet(GenericViewSet):
         if not self._can_access_order_chat(request.user, order):
             return Response({"message": "Нет доступа к чату этой заявки"}, status=status.HTTP_403_FORBIDDEN)
 
-        serializer = CreateOrderMessageSerializer(data=request.data)
-        if serializer.is_valid():
-            message = OrderMessage.objects.create(
-                order=order,
-                sender=request.user,
-                text=serializer.validated_data['text']
-            )
-            return Response(OrderMessageSerializer(message).data, status=status.HTTP_201_CREATED)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        text = request.data.get('text', '').strip()
+        image = request.FILES.get('image')
+
+        if not text and not image:
+            return Response({"message": "Сообщение должно содержать текст или изображение"}, status=status.HTTP_400_BAD_REQUEST)
+
+        if image:
+            allowed_types = ['image/jpeg', 'image/png', 'image/webp']
+            if image.content_type not in allowed_types:
+                return Response({"message": "Допустимые форматы: JPEG, PNG, WebP"}, status=status.HTTP_400_BAD_REQUEST)
+            if image.size > 5 * 1024 * 1024:
+                return Response({"message": "Максимальный размер файла 5 МБ"}, status=status.HTTP_400_BAD_REQUEST)
+
+        sender = order.created_by if request.user.role == UserRoles.ADMIN else request.user
+        message = OrderMessage.objects.create(
+            order=order,
+            sender=sender,
+            text=text,
+            image=image,
+        )
+        return Response(OrderMessageSerializer(message, context={'request': request}).data, status=status.HTTP_201_CREATED)
 
     def _update_trader_statistics(self, order):
         """Обновление статистики трейдера"""
@@ -1001,6 +1129,16 @@ class TraderViewSet(GenericViewSet):
             serializer.save()
             return Response(TraderPaymentMethodSerializer(payment_method).data)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(methods=['delete'], detail=True, url_path='delete-payment-method')
+    def delete_payment_method(self, request, pk=None):
+        """Удалить реквизиты трейдера"""
+        try:
+            payment_method = TraderPaymentMethod.objects.get(id=pk, trader=request.user)
+            payment_method.delete()
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        except TraderPaymentMethod.DoesNotExist:
+            return Response({"message": "Способ оплаты не найден"}, status=status.HTTP_404_NOT_FOUND)
 
     @swagger_auto_schema(
         request_body=UpdateOnlineStatusSerializer,
@@ -1194,3 +1332,413 @@ class TraderViewSet(GenericViewSet):
         }
         
         return Response(TraderDetailedStatsSerializer(stats_data).data)
+
+
+class SupportViewSet(GenericViewSet):
+    """Чат поддержки"""
+    permission_classes = [IsAuthenticated]
+
+    def get_permissions(self):
+        if self.action in ['threads', 'thread_messages', 'reply']:
+            return [IsAdminUser()]
+        return [IsAuthenticated()]
+
+    @action(methods=['get'], detail=False, url_path='telegram-info')
+    def telegram_info(self, request):
+        from . import telegram_service
+        bot_url = telegram_service.get_bot_url(str(request.user.id))
+        return Response({
+            'bot_url': bot_url,
+            'is_configured': telegram_service.is_configured(),
+            'is_linked': telegram_service.get_linked_chat_id(str(request.user.id)) is not None,
+        })
+
+    @action(methods=['get'], detail=False, url_path='messages')
+    def list_messages(self, request):
+        messages = SupportMessage.objects.filter(
+            user=request.user,
+            channel=SupportMessage.Channel.SITE,
+        ).select_related('sender')
+        SupportMessage.objects.filter(
+            user=request.user,
+            channel=SupportMessage.Channel.SITE,
+            is_read=False,
+        ).exclude(sender=request.user).update(is_read=True)
+        return Response(SupportMessageSerializer(messages, many=True).data)
+
+    @action(methods=['post'], detail=False, url_path='messages/send')
+    def send_message(self, request):
+        from . import telegram_service
+
+        serializer = CreateSupportMessageSerializer(data=request.data)
+        if serializer.is_valid():
+            message = SupportMessage.objects.create(
+                user=request.user,
+                sender=request.user,
+                text=serializer.validated_data['text'],
+                channel=SupportMessage.Channel.SITE,
+            )
+            tg_msg_id = telegram_service.notify_admin_about_site_message(
+                request.user, message.text
+            )
+            if tg_msg_id:
+                message.telegram_message_id = tg_msg_id
+                message.save(update_fields=['telegram_message_id'])
+            return Response(SupportMessageSerializer(message).data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(methods=['get'], detail=False, url_path='unread-count')
+    def unread_count(self, request):
+        if request.user.role == UserRoles.ADMIN:
+            count = SupportMessage.objects.filter(
+                channel=SupportMessage.Channel.SITE,
+                is_read=False,
+            ).exclude(sender__role=UserRoles.ADMIN).count()
+        else:
+            count = SupportMessage.objects.filter(
+                user=request.user,
+                channel=SupportMessage.Channel.SITE,
+                is_read=False,
+            ).exclude(sender=request.user).count()
+        return Response({'unread_count': count})
+
+    @action(methods=['get'], detail=False, url_path='threads')
+    def threads(self, request):
+        from django.db.models import Max, Count, Q
+
+        thread_rows = (
+            SupportMessage.objects.filter(channel=SupportMessage.Channel.SITE)
+            .values('user_id')
+            .annotate(
+                last_message_at=Max('created_at'),
+                unread_count=Count(
+                    'id',
+                    filter=Q(is_read=False) & ~Q(sender__role=UserRoles.ADMIN),
+                ),
+                total_messages=Count('id'),
+            )
+        )
+
+        threads = []
+        for row in thread_rows:
+            try:
+                thread_user = UserAccounts.objects.get(id=row['user_id'])
+            except UserAccounts.DoesNotExist:
+                continue
+
+            last = (
+                SupportMessage.objects.filter(
+                    user_id=row['user_id'],
+                    channel=SupportMessage.Channel.SITE,
+                )
+                .order_by('-created_at')
+                .first()
+            )
+            if not last:
+                continue
+
+            threads.append({
+                'user_info': thread_user,
+                'last_message': last.text[:120],
+                'last_message_at': row['last_message_at'],
+                'unread_count': row['unread_count'],
+                'total_messages': row['total_messages'],
+            })
+
+        threads.sort(
+            key=lambda t: (0 if t['unread_count'] > 0 else 1, -t['last_message_at'].timestamp())
+        )
+        return Response(SupportThreadSerializer(threads, many=True).data)
+
+    @action(methods=['get'], detail=False, url_path='thread')
+    def thread_messages(self, request):
+        user_id = request.query_params.get('user_id')
+        if not user_id:
+            return Response({'message': 'user_id обязателен'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            thread_user = UserAccounts.objects.get(id=user_id)
+        except UserAccounts.DoesNotExist:
+            return Response({'message': 'Пользователь не найден'}, status=status.HTTP_404_NOT_FOUND)
+
+        messages = SupportMessage.objects.filter(
+            user=thread_user,
+            channel=SupportMessage.Channel.SITE,
+        ).select_related('sender')
+        SupportMessage.objects.filter(
+            user=thread_user,
+            channel=SupportMessage.Channel.SITE,
+            is_read=False,
+        ).exclude(sender__role=UserRoles.ADMIN).update(is_read=True)
+
+        return Response(SupportMessageSerializer(messages, many=True).data)
+
+    @action(methods=['post'], detail=False, url_path='reply')
+    def reply(self, request):
+        from . import telegram_service
+
+        serializer = SupportReplySerializer(data=request.data)
+        if serializer.is_valid():
+            try:
+                thread_user = UserAccounts.objects.get(id=serializer.validated_data['user_id'])
+            except UserAccounts.DoesNotExist:
+                return Response({'message': 'Пользователь не найден'}, status=status.HTTP_404_NOT_FOUND)
+
+            text = serializer.validated_data['text']
+            message = SupportMessage.objects.create(
+                user=thread_user,
+                sender=request.user,
+                text=text,
+                channel=SupportMessage.Channel.SITE,
+            )
+            telegram_service.send_to_user_telegram(str(thread_user.id), text)
+            return Response(SupportMessageSerializer(message).data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+# === Public ViewSet (регистрация) ===
+
+class PublicViewSet(GenericViewSet):
+    """Публичные API (без авторизации)"""
+    permission_classes = [AllowAny]
+
+    @action(methods=['post'], detail=False, url_path='register')
+    def register(self, request):
+        """Регистрация клиента"""
+        serializer = TraderRegisterSerializer(data=request.data)
+        if serializer.is_valid():
+            user = UserAccounts.objects.create_user(
+                phone=serializer.validated_data['phone'],
+                password=serializer.validated_data['password']
+            )
+            user.first_name = serializer.validated_data['first_name']
+            user.last_name = serializer.validated_data['last_name']
+            user.email = serializer.validated_data.get('email', '')
+            user.role = UserRoles.CLIENT
+            user.is_active = True
+            user.is_confirmed = True
+            user.in_consideration = False
+            user.save()
+
+            refresh = RefreshToken.for_user(user)
+            return Response({
+                'user': UserSerialzier(user).data,
+                'access': str(refresh.access_token),
+                'refresh': str(refresh),
+            }, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class IsClientUser(IsAuthenticated):
+    def has_permission(self, request, view):
+        return super().has_permission(request, view) and request.user.role == UserRoles.CLIENT
+
+
+class ClientViewSet(GenericViewSet):
+    """ЛК клиента — заявки и реквизиты"""
+    permission_classes = [IsClientUser]
+
+    @action(methods=['get'], detail=False, url_path='orders')
+    def my_orders(self, request):
+        """Заявки клиента"""
+        orders = Order.objects.filter(created_by=request.user).order_by('-created_at')
+        return Response(OrderSerializer(orders, many=True).data)
+
+    @action(methods=['get'], detail=False, url_path='payment-methods')
+    def payment_methods(self, request):
+        """Реквизиты клиента"""
+        methods = TraderPaymentMethod.objects.filter(trader=request.user)
+        return Response(TraderPaymentMethodSerializer(methods, many=True).data)
+
+    @action(methods=['post'], detail=False, url_path='add-payment-method')
+    def add_payment_method(self, request):
+        """Добавить реквизиты"""
+        data = request.data
+        method = TraderPaymentMethod.objects.create(
+            trader=request.user,
+            method_type=data.get('method_type', 'card'),
+            bank_name=data.get('bank_name', ''),
+            card_number=data.get('card_number', ''),
+            card_holder_name=data.get('card_holder_name', ''),
+            wallet_address=data.get('wallet_address', ''),
+            crypto_network=data.get('crypto_network', ''),
+        )
+        return Response(TraderPaymentMethodSerializer(method).data, status=status.HTTP_201_CREATED)
+
+    @action(methods=['delete'], detail=True, url_path='delete-payment-method')
+    def delete_payment_method(self, request, pk=None):
+        """Удалить реквизиты"""
+        try:
+            method = TraderPaymentMethod.objects.get(id=pk, trader=request.user)
+            method.delete()
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        except TraderPaymentMethod.DoesNotExist:
+            return Response({'message': 'Не найдено'}, status=status.HTTP_404_NOT_FOUND)
+
+    @action(methods=['get'], detail=False, url_path='profile')
+    def profile(self, request):
+        """Профиль клиента"""
+        return Response(UserSerialzier(request.user).data)
+
+    @action(methods=['get'], detail=True, url_path='order-detail')
+    def order_detail(self, request, pk=None):
+        """Детали заявки с информацией о трейдере и отзыве"""
+        from .models import OrderReview
+        from django.db.models import Avg
+        try:
+            order = Order.objects.select_related('assigned_trader', 'created_by').get(id=pk, created_by=request.user)
+        except Order.DoesNotExist:
+            return Response({'message': 'Заявка не найдена'}, status=status.HTTP_404_NOT_FOUND)
+
+        data = OrderSerializer(order).data
+
+        if order.assigned_trader:
+            trader = order.assigned_trader
+            avg_rating = OrderReview.objects.filter(trader=trader).aggregate(avg=Avg('rating'))['avg']
+            reviews_count = OrderReview.objects.filter(trader=trader).count()
+            data['trader_info'] = {
+                'first_name': trader.first_name,
+                'last_name': trader.last_name,
+                'avg_rating': round(avg_rating, 1) if avg_rating else None,
+                'reviews_count': reviews_count,
+            }
+
+        try:
+            review = OrderReview.objects.get(order=order)
+            data['review'] = {
+                'rating': review.rating,
+                'text': review.text,
+                'created_at': review.created_at.isoformat(),
+            }
+        except OrderReview.DoesNotExist:
+            data['review'] = None
+
+        return Response(data)
+
+    @action(methods=['post'], detail=True, url_path='review')
+    def leave_review(self, request, pk=None):
+        """Оставить отзыв о сделке"""
+        from .models import OrderReview
+        try:
+            order = Order.objects.get(id=pk, created_by=request.user, status=OrderStatus.COMPLETED)
+        except Order.DoesNotExist:
+            return Response({'message': 'Заявка не найдена или не завершена'}, status=status.HTTP_404_NOT_FOUND)
+
+        if not order.assigned_trader:
+            return Response({'message': 'Трейдер не назначен'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if OrderReview.objects.filter(order=order).exists():
+            return Response({'message': 'Отзыв уже оставлен'}, status=status.HTTP_400_BAD_REQUEST)
+
+        rating = request.data.get('rating')
+        if not rating or int(rating) < 1 or int(rating) > 5:
+            return Response({'message': 'Оценка от 1 до 5'}, status=status.HTTP_400_BAD_REQUEST)
+
+        review = OrderReview.objects.create(
+            order=order,
+            client=request.user,
+            trader=order.assigned_trader,
+            rating=int(rating),
+            text=request.data.get('text', ''),
+        )
+        return Response({
+            'rating': review.rating,
+            'text': review.text,
+            'created_at': review.created_at.isoformat(),
+        }, status=status.HTTP_201_CREATED)
+
+    @action(methods=['get'], detail=True, url_path='messages')
+    def order_messages(self, request, pk=None):
+        """Сообщения чата заявки"""
+        try:
+            order = Order.objects.get(id=pk, created_by=request.user)
+        except Order.DoesNotExist:
+            return Response({'message': 'Заявка не найдена'}, status=status.HTTP_404_NOT_FOUND)
+
+        messages = OrderMessage.objects.filter(order=order).select_related('sender')
+        return Response(OrderMessageSerializer(messages, many=True, context={'request': request}).data)
+
+    @action(methods=['post'], detail=True, url_path='messages/send')
+    def send_order_message(self, request, pk=None):
+        """Отправить сообщение в чат заявки (с поддержкой фото)"""
+        try:
+            order = Order.objects.get(id=pk, created_by=request.user)
+        except Order.DoesNotExist:
+            return Response({'message': 'Заявка не найдена'}, status=status.HTTP_404_NOT_FOUND)
+
+        text = request.data.get('text', '').strip()
+        image = request.FILES.get('image')
+
+        if not text and not image:
+            return Response({'message': 'Сообщение должно содержать текст или изображение'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if image:
+            allowed_types = ['image/jpeg', 'image/png', 'image/webp']
+            if image.content_type not in allowed_types:
+                return Response({'message': 'Допустимые форматы: JPEG, PNG, WebP'}, status=status.HTTP_400_BAD_REQUEST)
+            if image.size > 5 * 1024 * 1024:
+                return Response({'message': 'Максимальный размер файла 5 МБ'}, status=status.HTTP_400_BAD_REQUEST)
+
+        message = OrderMessage.objects.create(
+            order=order,
+            sender=request.user,
+            text=text,
+            image=image,
+        )
+        return Response(OrderMessageSerializer(message, context={'request': request}).data, status=status.HTTP_201_CREATED)
+
+
+class ExchangeRateViewSet(GenericViewSet):
+    """API курса обмена"""
+    permission_classes = [AllowAny]
+
+    @action(methods=['get'], detail=False, url_path='current')
+    def current_rate(self, request):
+        """Текущий курс USDT/KZT"""
+        import requests
+        from decimal import Decimal
+        from django.core.cache import cache
+
+        cache_key = 'exchange_rate_usdt_kzt'
+        cached = cache.get(cache_key)
+        if cached:
+            return Response(cached)
+
+        try:
+            resp = requests.get(
+                'https://api.binance.com/api/v3/ticker/price',
+                params={'symbol': 'USDTKZT'},
+                timeout=5
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                rate = Decimal(data['price'])
+            else:
+                resp = requests.get(
+                    'https://api.coingecko.com/api/v3/simple/price',
+                    params={'ids': 'tether', 'vs_currencies': 'kzt'},
+                    timeout=5
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    rate = Decimal(str(data['tether']['kzt']))
+                else:
+                    rate = Decimal('475.00')
+        except Exception:
+            rate = Decimal('475.00')
+
+        ExchangeRate.objects.update_or_create(
+            pair='USDT/KZT',
+            defaults={'rate': rate}
+        )
+
+        spread_percent = Decimal('0.03')
+        result = {
+            'pair': 'USDT/KZT',
+            'buy_rate': str((rate * (1 + spread_percent)).quantize(Decimal('0.01'))),
+            'sell_rate': str((rate * (1 - spread_percent)).quantize(Decimal('0.01'))),
+            'mid_rate': str(rate),
+            'updated_at': timezone.now().isoformat(),
+        }
+        cache.set(cache_key, result, 60)
+        return Response(result)

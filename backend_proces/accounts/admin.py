@@ -1,6 +1,6 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
-from .models import UserAccounts, TraderProfile, Order, TraderStatistics, TraderPaymentMethod, OrderMessage
+from .models import UserAccounts, TraderProfile, Order, TraderStatistics, TraderPaymentMethod, OrderMessage, SupportMessage
 
 
 class TraderPaymentMethodInline(admin.TabularInline):
@@ -152,6 +152,19 @@ class OrderMessageAdmin(admin.ModelAdmin):
     list_display = ('order', 'sender', 'text_preview', 'created_at')
     list_filter = ('created_at',)
     search_fields = ('text', 'sender__phone', 'order__id')
+    ordering = ('-created_at',)
+    readonly_fields = ('created_at',)
+
+    def text_preview(self, obj):
+        return obj.text[:80]
+    text_preview.short_description = 'Текст'
+
+
+@admin.register(SupportMessage)
+class SupportMessageAdmin(admin.ModelAdmin):
+    list_display = ('user', 'sender', 'text_preview', 'is_read', 'created_at')
+    list_filter = ('is_read', 'created_at')
+    search_fields = ('text', 'user__phone', 'sender__phone')
     ordering = ('-created_at',)
     readonly_fields = ('created_at',)
 
